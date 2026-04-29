@@ -23,4 +23,14 @@ pub enum InsuranceError {
     PropertyNotInsurable,
     DuplicateClaim,
     ReentrantCall,
+    // Risk Assessment Errors (Task #254)
+    RiskAssessmentNotFound,
+    RiskAssessmentExpired,
+    InvalidRiskFactors,
+    RiskModelGenerationFailed,
+    // Fraud Detection Errors (Task #258)
+    FraudAssessmentNotFound,
+    HighFraudRisk,
+    FraudPatternNotFound,
+    InvalidFraudIndicator,
 }
