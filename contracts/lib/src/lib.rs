@@ -272,6 +272,7 @@ pub mod propchain_contracts {
         }
     }
 
+
     /// Escrow information
     #[derive(
         Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
