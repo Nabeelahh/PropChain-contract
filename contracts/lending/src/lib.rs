@@ -29,6 +29,7 @@ mod propchain_lending {
         ProposalNotFound,
         RestructuringNotFound,
         InsufficientVotes,
+        ServicerNotFound,
         PaymentScheduleNotFound,
         ReentrantCall,
     }
@@ -88,6 +89,8 @@ mod propchain_lending {
     pub enum LoanStatus {
         Pending,
         Active,
+        Repaid,
+        Defaulted,
         RestructuringProposed,
         Restructured,
         Liquidated,
@@ -120,6 +123,25 @@ mod propchain_lending {
         pub requested_amount: u128,
         pub collateral_value: u128,
         pub credit_score: u32,
+        pub approved: bool,
+        pub servicer_id: Option<u64>,
+        pub servicing_reference: String,
+        pub servicing_status: String,
+        pub collateral_kind: CollateralKind,
+        pub term_months: u32,
+        pub interest_rate_bps: u32,
+        pub status: LoanStatus,
+    }
+
+    #[derive(
+        Debug, Clone, PartialEq, scale::Encode, scale::Decode, ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct LoanServicer {
+        pub servicer_id: u64,
+        pub account: AccountId,
+        pub name: String,
+        pub active: bool,
         pub collateral_kind: CollateralKind,
         pub term_months: u32,
         pub interest_rate_bps: u32,
@@ -244,6 +266,8 @@ mod propchain_lending {
         borrower_loans: Mapping<AccountId, Vec<u64>>,
         loan_restructurings: Mapping<u64, LoanRestructuring>,
         loan_count: u64,
+        loan_servicers: Mapping<u64, LoanServicer>,
+        servicer_count: u64,
         payment_schedules: Mapping<u64, PaymentSchedule>,
         loan_payment_schedule: Mapping<u64, u64>,
         schedule_count: u64,
@@ -287,6 +311,31 @@ mod propchain_lending {
         #[ink(topic)]
         applicant: AccountId,
         amount: u128,
+    }
+
+    #[ink(event)]
+    pub struct LoanServicerRegistered {
+        #[ink(topic)]
+        servicer_id: u64,
+        #[ink(topic)]
+        account: AccountId,
+        name: String,
+    }
+
+    #[ink(event)]
+    pub struct LoanServicerAssigned {
+        #[ink(topic)]
+        loan_id: u64,
+        #[ink(topic)]
+        servicer_id: u64,
+        external_reference: String,
+    }
+
+    #[ink(event)]
+    pub struct LoanServicingStatusUpdated {
+        #[ink(topic)]
+        loan_id: u64,
+        status: String,
     }
 
     #[ink(event)]
@@ -337,6 +386,8 @@ mod propchain_lending {
                 borrower_loans: Mapping::default(),
                 loan_restructurings: Mapping::default(),
                 loan_count: 0,
+                loan_servicers: Mapping::default(),
+                servicer_count: 0,
                 payment_schedules: Mapping::default(),
                 loan_payment_schedule: Mapping::default(),
                 schedule_count: 0,
@@ -522,6 +573,10 @@ mod propchain_lending {
                 requested_amount,
                 collateral_value,
                 credit_score,
+                approved: false,
+                servicer_id: None,
+                servicing_reference: String::new(),
+                servicing_status: String::from("Pending"),
                 collateral_kind: CollateralKind::Unsecured,
                 term_months,
                 interest_rate_bps,
@@ -562,6 +617,10 @@ mod propchain_lending {
                 requested_amount,
                 collateral_value: record.assessed_value,
                 credit_score,
+                approved: false,
+                servicer_id: None,
+                servicing_reference: String::new(),
+                servicing_status: String::from("Pending"),
                 collateral_kind: CollateralKind::PropertyTokenized,
                 term_months,
                 interest_rate_bps,
@@ -617,6 +676,92 @@ mod propchain_lending {
         }
 
         #[ink(message)]
+        pub fn register_loan_servicer(
+            &mut self,
+            account: AccountId,
+            name: String,
+        ) -> Result<u64, LendingError> {
+            if self.env().caller() != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            if name.is_empty() {
+                return Err(LendingError::InvalidParameters);
+            }
+            self.servicer_count += 1;
+            let servicer = LoanServicer {
+                servicer_id: self.servicer_count,
+                account,
+                name: name.clone(),
+                active: true,
+                collateral_kind: CollateralKind::Unsecured,
+                term_months: 0,
+                interest_rate_bps: 0,
+                status: LoanStatus::Active,
+            };
+            self.loan_servicers.insert(self.servicer_count, &servicer);
+            self.env().emit_event(LoanServicerRegistered {
+                servicer_id: self.servicer_count,
+                account,
+                name,
+            });
+            Ok(self.servicer_count)
+        }
+
+        #[ink(message)]
+        pub fn set_loan_servicer_active(
+            &mut self,
+            servicer_id: u64,
+            active: bool,
+        ) -> Result<(), LendingError> {
+            if self.env().caller() != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            let mut servicer = self
+                .loan_servicers
+                .get(servicer_id)
+                .ok_or(LendingError::ServicerNotFound)?;
+            servicer.active = active;
+            self.loan_servicers.insert(servicer_id, &servicer);
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn assign_loan_servicer(
+            &mut self,
+            loan_id: u64,
+            servicer_id: u64,
+            external_reference: String,
+        ) -> Result<(), LendingError> {
+            if self.env().caller() != self.admin {
+                return Err(LendingError::Unauthorized);
+            }
+            if external_reference.is_empty() {
+                return Err(LendingError::InvalidParameters);
+            }
+            let servicer = self
+                .loan_servicers
+                .get(servicer_id)
+                .ok_or(LendingError::ServicerNotFound)?;
+            if !servicer.active {
+                return Err(LendingError::InvalidParameters);
+            }
+            let mut loan = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+            loan.servicer_id = Some(servicer_id);
+            loan.servicing_reference = external_reference.clone();
+            loan.servicing_status = String::from("Boarded");
+            self.loan_applications.insert(loan_id, &loan);
+            self.env().emit_event(LoanServicerAssigned {
+                loan_id,
+                servicer_id,
+                external_reference,
+            });
+            Ok(())
+        }
+
+        #[ink(message)]
         pub fn propose_loan_restructuring(
             &mut self,
             loan_id: u64,
@@ -656,6 +801,35 @@ mod propchain_lending {
                 new_term_months,
                 new_interest_rate_bps,
             });
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn update_servicing_status(
+            &mut self,
+            loan_id: u64,
+            status: String,
+        ) -> Result<(), LendingError> {
+            let mut loan = self
+                .loan_applications
+                .get(loan_id)
+                .ok_or(LendingError::LoanNotFound)?;
+            let servicer_id = loan.servicer_id.ok_or(LendingError::ServicerNotFound)?;
+            let servicer = self
+                .loan_servicers
+                .get(servicer_id)
+                .ok_or(LendingError::ServicerNotFound)?;
+            let caller = self.env().caller();
+            if caller != self.admin && caller != servicer.account {
+                return Err(LendingError::Unauthorized);
+            }
+            if status.is_empty() {
+                return Err(LendingError::InvalidParameters);
+            }
+            loan.servicing_status = status.clone();
+            self.loan_applications.insert(loan_id, &loan);
+            self.env()
+                .emit_event(LoanServicingStatusUpdated { loan_id, status });
             Ok(())
         }
 
@@ -902,57 +1076,8 @@ mod propchain_lending {
         }
 
         #[ink(message)]
-        pub fn get_borrower_loan_ids(&self, owner: AccountId) -> Vec<u64> {
-            self.borrower_loans.get(owner).unwrap_or_default()
-        }
-
-        #[ink(message)]
-        pub fn get_loan_portfolio(&self, owner: AccountId) -> LoanPortfolio {
-            let loan_ids = self.get_borrower_loan_ids(owner);
-            let mut approved_loans = 0u32;
-            let mut total_requested = 0u128;
-            let mut total_approved = 0u128;
-            let mut total_collateral = 0u128;
-            let mut total_credit_score = 0u128;
-
-            for loan_id in loan_ids.iter() {
-                if let Some(loan) = self.loan_applications.get(loan_id) {
-                    total_requested = total_requested.saturating_add(loan.requested_amount);
-                    total_collateral = total_collateral.saturating_add(loan.collateral_value);
-                    total_credit_score =
-                        total_credit_score.saturating_add(loan.credit_score as u128);
-                    if matches!(
-                        loan.status,
-                        LoanStatus::Active
-                            | LoanStatus::Restructured
-                            | LoanStatus::RestructuringProposed
-                    ) {
-                        approved_loans = approved_loans.saturating_add(1);
-                        total_approved = total_approved.saturating_add(loan.requested_amount);
-                    }
-                }
-            }
-
-            let total_loans = loan_ids.len() as u32;
-            let average_credit_score = if total_loans == 0 {
-                0
-            } else {
-                total_credit_score
-                    .checked_div(total_loans as u128)
-                    .unwrap_or(0) as u32
-            };
-
-            LoanPortfolio {
-                owner,
-                loan_ids,
-                total_loans,
-                approved_loans,
-                pending_loans: total_loans.saturating_sub(approved_loans),
-                total_requested,
-                total_approved,
-                total_collateral,
-                average_credit_score,
-            }
+        pub fn get_loan_servicer(&self, servicer_id: u64) -> Option<LoanServicer> {
+            self.loan_servicers.get(servicer_id)
         }
 
         #[ink(message)]
@@ -985,8 +1110,7 @@ mod propchain_lending {
 }
 
 pub use crate::propchain_lending::{
-    LendingError, LoanPortfolio, LoanStatus, PaymentSchedule, PaymentScheduleStatus,
-    PropertyLending,
+    LendingError, LoanServicer, LoanStatus, PaymentSchedule, PaymentScheduleStatus, PropertyLending,
 };
 
 #[cfg(test)]
@@ -1066,52 +1190,29 @@ mod tests {
     }
 
     #[ink::test]
-    fn test_loan_portfolio_management_tracks_borrower_loans() {
+    fn test_loan_servicer_integration() {
         let mut contract = setup();
         let accounts = test::default_accounts::<DefaultEnvironment>();
+        let servicer_id = contract
+            .register_loan_servicer(accounts.bob, String::from("Acme Servicing"))
+            .unwrap();
+        let loan_id = contract.apply_for_loan(1, 700_000, 1_000_000, 700).unwrap();
 
-        for _ in 0..6 {
-            contract.record_repayment(accounts.alice).unwrap();
-            contract.record_repayment(accounts.bob).unwrap();
-        }
+        contract
+            .assign_loan_servicer(loan_id, servicer_id, String::from("EXT-123"))
+            .unwrap();
+        let loan = contract.get_loan(loan_id).unwrap();
+        assert_eq!(loan.servicer_id, Some(servicer_id));
+        assert_eq!(loan.servicing_reference, "EXT-123");
+        assert_eq!(loan.servicing_status, "Boarded");
 
-        let loan_id = contract.apply_for_loan(1, 700_000, 1_000_000, 0).unwrap();
-        let loan_id2 = contract.apply_for_loan(2, 900_000, 1_000_000, 0).unwrap();
         test::set_caller::<DefaultEnvironment>(accounts.bob);
-        let bob_loan_id = contract.apply_for_loan(3, 400_000, 800_000, 0).unwrap();
-
-        test::set_caller::<DefaultEnvironment>(accounts.alice);
-        assert!(contract.underwrite_loan(loan_id).unwrap());
-        assert!(!contract.underwrite_loan(loan_id2).unwrap());
-        assert!(contract.underwrite_loan(bob_loan_id).unwrap());
-
-        let alice_portfolio = contract.get_loan_portfolio(accounts.alice);
-        assert_eq!(alice_portfolio.loan_ids, vec![loan_id, loan_id2]);
-        assert_eq!(alice_portfolio.total_loans, 2);
-        assert_eq!(alice_portfolio.approved_loans, 1);
-        assert_eq!(alice_portfolio.pending_loans, 1);
-        assert_eq!(alice_portfolio.total_requested, 1_600_000);
-        assert_eq!(alice_portfolio.total_approved, 700_000);
-        assert_eq!(alice_portfolio.total_collateral, 2_000_000);
-        assert_eq!(alice_portfolio.average_credit_score, 615);
-
-        let bob_portfolio = contract.get_loan_portfolio(accounts.bob);
-        assert_eq!(bob_portfolio.loan_ids, vec![bob_loan_id]);
-        assert_eq!(bob_portfolio.total_approved, 400_000);
-    }
-
-    #[ink::test]
-    fn test_empty_loan_portfolio_is_readable() {
-        let contract = setup();
-        let accounts = test::default_accounts::<DefaultEnvironment>();
-        let portfolio = contract.get_loan_portfolio(accounts.bob);
-
-        assert!(portfolio.loan_ids.is_empty());
-        assert_eq!(portfolio.total_loans, 0);
-        assert_eq!(portfolio.average_credit_score, 0);
+        contract
+            .update_servicing_status(loan_id, String::from("Current"))
+            .unwrap();
         assert_eq!(
-            contract.get_borrower_loan_ids(accounts.bob),
-            Vec::<u64>::new()
+            contract.get_loan(loan_id).unwrap().servicing_status,
+            "Current"
         );
     }
 
@@ -1143,6 +1244,45 @@ mod tests {
         assert_eq!(
             contract.apply_for_property_backed_loan(9, 700_000, 700, 12, 700),
             Err(LendingError::InsufficientCollateral)
+        );
+    }
+
+    #[ink::test]
+    fn test_loan_servicer_authorization_and_validation() {
+        let mut contract = setup();
+        let accounts = test::default_accounts::<DefaultEnvironment>();
+        let loan_id = contract.apply_for_loan(1, 700_000, 1_000_000, 700).unwrap();
+
+        assert_eq!(
+            contract.register_loan_servicer(accounts.bob, String::new()),
+            Err(LendingError::InvalidParameters)
+        );
+        let servicer_id = contract
+            .register_loan_servicer(accounts.bob, String::from("Acme Servicing"))
+            .unwrap();
+        contract
+            .set_loan_servicer_active(servicer_id, false)
+            .unwrap();
+        assert_eq!(
+            contract.assign_loan_servicer(loan_id, servicer_id, String::from("EXT-123")),
+            Err(LendingError::InvalidParameters)
+        );
+
+        contract
+            .set_loan_servicer_active(servicer_id, true)
+            .unwrap();
+        contract
+            .assign_loan_servicer(loan_id, servicer_id, String::from("EXT-123"))
+            .unwrap();
+
+        test::set_caller::<DefaultEnvironment>(accounts.charlie);
+        assert_eq!(
+            contract.update_servicing_status(loan_id, String::from("Late")),
+            Err(LendingError::Unauthorized)
+        );
+        assert_eq!(
+            contract.assign_loan_servicer(loan_id, servicer_id, String::from("EXT-456")),
+            Err(LendingError::Unauthorized)
         );
     }
 

@@ -46,6 +46,22 @@ mod fractional {
         ink::storage::traits::StorageLayout,
     )]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct FractionalDashboard {
+        pub owner: AccountId,
+        pub total_value: u128,
+        pub positions: Vec<PortfolioItem>,
+    }
+
+    #[derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        scale::Encode,
+        scale::Decode,
+        ink::storage::traits::StorageLayout,
+    )]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub struct TaxReport {
         pub total_dividends: u128,
         pub total_proceeds: u128,
@@ -280,6 +296,22 @@ mod fractional {
         #[ink(message)]
         pub fn balance_of(&self, owner: AccountId, token_id: u64) -> u128 {
             self.balances.get(&(owner, token_id)).unwrap_or(0)
+        }
+
+        /// Consolidate an owner's share balance for a token into the canonical balance slot.
+        #[ink(message)]
+        pub fn consolidate_shares(
+            &mut self,
+            owner: AccountId,
+            token_id: u64,
+        ) -> Result<u128, FractionalError> {
+            let shares = self.balances.get(&(owner, token_id)).unwrap_or(0);
+            if shares == 0 {
+                return Err(FractionalError::InsufficientShares);
+            }
+
+            self.balances.insert(&(owner, token_id), &shares);
+            Ok(shares)
         }
 
         /// List shares for sale at a given price per share.
