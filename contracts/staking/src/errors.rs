@@ -22,6 +22,16 @@ pub enum Error {
     VotingEnded,
     QuorumNotReached,
     TooManyProposals,
+    // Delegation-specific errors
+    InsufficientValidatorStake,
+    InvalidCommissionRate,
+    AlreadyValidator,
+    ValidatorNotActive,
+    AlreadyDelegated,
+    DelegationNotFound,
+    AlreadyUnbonding,
+    UnbondingPeriodActive,
+    ValidatorNotFound,
 }
 
 impl core::fmt::Display for Error {
@@ -46,6 +56,15 @@ impl core::fmt::Display for Error {
             Error::VotingEnded => write!(f, "Voting period has ended"),
             Error::QuorumNotReached => write!(f, "Quorum not reached"),
             Error::TooManyProposals => write!(f, "Too many active proposals"),
+            Error::InsufficientValidatorStake => write!(f, "Validator self-stake is below the minimum required"),
+            Error::InvalidCommissionRate => write!(f, "Commission rate exceeds maximum of 10,000 bps"),
+            Error::AlreadyValidator => write!(f, "Account is already registered as a validator"),
+            Error::ValidatorNotActive => write!(f, "Target validator is not registered or is inactive"),
+            Error::AlreadyDelegated => write!(f, "Delegator already has an active delegation to this validator"),
+            Error::DelegationNotFound => write!(f, "No active delegation record found"),
+            Error::AlreadyUnbonding => write!(f, "Delegation is already in unbonding state"),
+            Error::UnbondingPeriodActive => write!(f, "Unbonding period has not yet elapsed"),
+            Error::ValidatorNotFound => write!(f, "Validator account is not registered"),
         }
     }
 }
@@ -72,6 +91,15 @@ impl ContractError for Error {
             Error::VotingEnded => staking_codes::STAKING_VOTING_ENDED,
             Error::QuorumNotReached => staking_codes::STAKING_QUORUM_NOT_REACHED,
             Error::TooManyProposals => staking_codes::STAKING_TOO_MANY_PROPOSALS,
+            Error::InsufficientValidatorStake => 10001,
+            Error::InvalidCommissionRate => 10002,
+            Error::AlreadyValidator => 10003,
+            Error::ValidatorNotActive => 10004,
+            Error::AlreadyDelegated => 10005,
+            Error::DelegationNotFound => 10006,
+            Error::AlreadyUnbonding => 10007,
+            Error::UnbondingPeriodActive => 10008,
+            Error::ValidatorNotFound => 10009,
         }
     }
 
@@ -96,6 +124,15 @@ impl ContractError for Error {
             Error::VotingEnded => "Cannot vote after the voting window has closed",
             Error::QuorumNotReached => "Total turnout did not meet the quorum threshold",
             Error::TooManyProposals => "Active proposal limit reached",
+            Error::InsufficientValidatorStake => "Validator self-stake is below the minimum required threshold",
+            Error::InvalidCommissionRate => "Commission rate exceeds the maximum allowed value of 10,000 basis points",
+            Error::AlreadyValidator => "This account is already registered as a validator",
+            Error::ValidatorNotActive => "The target validator is not registered or is currently inactive",
+            Error::AlreadyDelegated => "This delegator already has an active delegation to the specified validator",
+            Error::DelegationNotFound => "No active delegation record was found for this account",
+            Error::AlreadyUnbonding => "This delegation is already in the unbonding state",
+            Error::UnbondingPeriodActive => "The unbonding period has not yet elapsed; tokens cannot be claimed yet",
+            Error::ValidatorNotFound => "The specified validator account is not registered",
         }
     }
 
