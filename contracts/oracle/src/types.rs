@@ -76,7 +76,28 @@ pub struct GovernanceProposal {
     pub created_at: u64,
 }
 
-<<<<<<< security/issue-494-497-circuit-breaker-autoslash-multisig-rotation
+
+/// Direction of property price trend.
+#[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+pub enum TrendDirection {
+    Up,
+    Down,
+    Stable,
+}
+
+/// Property trend metrics for valuation analysis.
+#[derive(Debug, Clone, PartialEq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+pub struct TrendMetrics {
+    pub current_price: u128,
+    pub ema_7d: u128,
+    pub sma_7d: u128,
+    pub sma_30d: u128,
+    pub trend_direction: TrendDirection,
+}
+
+
 // ── Aggregation Method (existing infrastructure) ──────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -287,7 +308,7 @@ pub struct AutoSlashReason {
     /// Observed value that triggered the slash
     pub observed: u64,
 }
-=======
+
 // ── Oracle Data History Tracking Types ─────────────────────────────────────────
 
 /// Minimum retention period for history data (7 days in milliseconds)
@@ -299,4 +320,5 @@ pub const HISTORY_MAX_RETENTION_MS: u64 = 730 * 24 * 60 * 60 * 1000;
 /// Default retention period for history data (90 days in milliseconds)
 pub const HISTORY_DEFAULT_RETENTION_MS: u64 = 90 * 24 * 60 * 60 * 1000;
 
->>>>>>> main
+
+
