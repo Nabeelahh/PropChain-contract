@@ -15,6 +15,9 @@ mod risk_assessment;
 // Fraud Detection System (Task #258)
 mod fraud_detection;
 
+// Premium calculation engine
+mod premium_engine;
+
 /// Decentralized Property Insurance Platform
 #[ink::contract]
 mod propchain_insurance {
@@ -1174,10 +1177,7 @@ mod propchain_insurance {
         /// Deactivate an active trigger. Only the policyholder or admin may
         /// deactivate. Already-fired triggers cannot be re-deactivated.
         #[ink(message)]
-        pub fn deactivate_claim_trigger(
-            &mut self,
-            trigger_id: u64,
-        ) -> Result<(), InsuranceError> {
+        pub fn deactivate_claim_trigger(&mut self, trigger_id: u64) -> Result<(), InsuranceError> {
             let caller = self.env().caller();
             let mut trigger = self
                 .claim_triggers
@@ -1280,8 +1280,7 @@ mod propchain_insurance {
                 if remaining == 0 {
                     return Err(InsuranceError::ClaimExceedsCoverage);
                 }
-                let claim_amount =
-                    Self::compute_claim_amount(&trigger.payout_mode, remaining)?;
+                let claim_amount = Self::compute_claim_amount(&trigger.payout_mode, remaining)?;
                 if claim_amount == 0 {
                     return Err(InsuranceError::TriggerConditionNotMet);
                 }
@@ -1310,8 +1309,10 @@ mod propchain_insurance {
                 policy.claims_count += 1;
                 self.policies.insert(&trigger.policy_id, &policy);
 
-                let mut policy_claims =
-                    self.policy_claims.get(&trigger.policy_id).unwrap_or_default();
+                let mut policy_claims = self
+                    .policy_claims
+                    .get(&trigger.policy_id)
+                    .unwrap_or_default();
                 policy_claims.push(claim_id);
                 self.policy_claims
                     .insert(&trigger.policy_id, &policy_claims);
@@ -1911,7 +1912,8 @@ mod propchain_insurance {
                 .get(&caller)
                 .unwrap_or_default();
             holder_list.push(policy_id);
-            self.holder_parametric_policies.insert(&caller, &holder_list);
+            self.holder_parametric_policies
+                .insert(&caller, &holder_list);
 
             self.env().emit_event(ParametricPolicyCreated {
                 policy_id,
@@ -2243,8 +2245,8 @@ mod propchain_insurance {
             }
 
             let block = self.env().block_number();
-            let effective_at = block
-                .saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
+            let effective_at =
+                block.saturating_add(propchain_traits::constants::KEY_ROTATION_COOLDOWN_BLOCKS);
 
             self.pending_admin_rotation = Some(propchain_traits::KeyRotationRequest {
                 old_account: caller,
@@ -2330,9 +2332,7 @@ mod propchain_insurance {
 
         /// Get the pending admin rotation request, if any.
         #[ink(message)]
-        pub fn get_pending_admin_rotation(
-            &self,
-        ) -> Option<propchain_traits::KeyRotationRequest> {
+        pub fn get_pending_admin_rotation(&self) -> Option<propchain_traits::KeyRotationRequest> {
             self.pending_admin_rotation.clone()
         }
 
@@ -2940,11 +2940,14 @@ mod propchain_insurance {
         }
 
         /// Find a suitable pool for the given coverage type
-        fn find_pool_for_coverage(&self, coverage_type: &CoverageType) -> Result<RiskPool, InsuranceError> {
+        fn find_pool_for_coverage(
+            &self,
+            coverage_type: &CoverageType,
+        ) -> Result<RiskPool, InsuranceError> {
             // Iterate through pools to find an active one matching the coverage type
             // For now, return the first active pool or a default
             let pool_count = self.pool_count;
-            
+
             for pool_id in 1..=pool_count {
                 if let Some(pool) = self.pools.get(&pool_id) {
                     if pool.is_active && pool.coverage_type == *coverage_type {
@@ -2966,10 +2969,13 @@ mod propchain_insurance {
         }
 
         /// Get actuarial model for coverage type
-        fn get_actuarial_model_for_coverage(&self, coverage_type: &CoverageType) -> Option<ActuarialModel> {
+        fn get_actuarial_model_for_coverage(
+            &self,
+            coverage_type: &CoverageType,
+        ) -> Option<ActuarialModel> {
             // Search through models to find one matching the coverage type
             let model_count = self.model_count;
-            
+
             for model_id in 1..=model_count {
                 if let Some(model) = self.actuarial_models.get(&model_id) {
                     if model.coverage_type == *coverage_type {
@@ -2977,7 +2983,7 @@ mod propchain_insurance {
                     }
                 }
             }
-            
+
             None
         }
 
@@ -3035,7 +3041,9 @@ mod propchain_insurance {
                 self.circuit_breaker_active = true;
                 let now = self.env().block_timestamp();
                 // Determine pool_id for the event
-                let pool_id = self.policies.get(&policy_id)
+                let pool_id = self
+                    .policies
+                    .get(&policy_id)
                     .map(|p| p.pool_id)
                     .unwrap_or(0);
                 self.env().emit_event(CircuitBreakerTripped {
