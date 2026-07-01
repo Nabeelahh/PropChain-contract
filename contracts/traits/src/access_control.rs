@@ -17,6 +17,7 @@ pub enum Role {
     Verifier,
     PauseGuardian,
     Manager,
+    EscrowAdmin,
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -471,10 +472,11 @@ impl AccessControl {
             Role::Verifier => vec![Role::Admin, Role::SuperAdmin],
             Role::PauseGuardian => vec![Role::Admin, Role::SuperAdmin],
             Role::Manager => vec![Role::Admin, Role::SuperAdmin],
+            Role::EscrowAdmin => vec![Role::Admin, Role::SuperAdmin],
         }
     }
 
-    fn all_roles(&self) -> [Role; 9] {
+    fn all_roles(&self) -> [Role; 10] {
         [
             Role::SuperAdmin,
             Role::Admin,
@@ -485,6 +487,7 @@ impl AccessControl {
             Role::Verifier,
             Role::PauseGuardian,
             Role::Manager,
+            Role::EscrowAdmin,
         ]
     }
 
